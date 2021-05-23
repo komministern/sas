@@ -46,6 +46,8 @@ class SASClientSocket(QtNetwork.QTcpSocket):
 
 class SASServer(QtNetwork.QTcpServer):
 
+    no_state = 'None'
+
     def __init__(self, server_port, connections_path, parent=None):
         super(SASServer, self).__init__(parent)
 
@@ -127,70 +129,92 @@ class SASServer(QtNetwork.QTcpServer):
         
         received_message = ready_socket.readAll().data().decode()
         
-        # logger.debug('Received message from connection %s: "%s"' % (socket_id, received_message.rstrip()))
-        
         lines = received_message.split('\n')
 
         for line in lines:
             entries = line.split(':')
             if len(entries) > 1:
                 if entries[0] == 'clientname':
-                    self.registerClientName(entries[1:], socket_id)
+                    client_name = entries[1]
+                    self.registerClientName(client_name, socket_id)
+
                 elif entries[0] == 'registration':
-                    self.registerTerminals(entries[1:], socket_id)
+                    terminal_type = entries[1]
+                    if terminal_type == 'inputs':
+                        input_terminals = entries[2:]
+                        self.registerInputTerminals(input_terminals, socket_id)
+                    elif terminal_type == 'outputs':
+                        output_terminals = entries[2:]
+                        self.registerOutputTerminals(output_terminals, socket_id)
+
                 elif entries[0] == 'statechange':
-                    self.registerOutputTerminalStateChange(entries[1:])
+                    terminal_name = entries[1]
+                    new_state = entries[2]
+                    self.registerOutputTerminalStateChange(terminal_name, new_state)
+
                 else:
                     raise Exception
 
 
-    def registerClientName(self, entries, socket_id):
-        client_name = entries[0]
-        self.client_sockets[socket_id]['group'] = client_name
+    def registerClientName(self, name, socket_id):
+        self.client_sockets[socket_id]['group'] = name
+        logger.info('Client %s registered as %s.' % (socket_id, name))
+    
+    def registerInputTerminals(self, input_terminals, socket_id):
+        for terminal_name in input_terminals:
+            self.registered_input_terminal_states[terminal_name] = {'state': self.no_state, 'socket_id': socket_id}
+            logger.debug('Client %s registered an input terminal: %s)' % (socket_id, terminal_name))
 
+    def registerOutputTerminals(self, output_terminals, socket_id):
+        for terminal_name in output_terminals:
+            self.registered_output_terminal_states[terminal_name] = {'state': self.no_state, 'socket_id': socket_id}
+            logger.debug('Client %s registered an output terminal: %s)' % (socket_id, terminal_name))
 
-    def registerOutputTerminalStateChange(self, entries):
-        output_terminal_name = entries[0]
-        new_state = entries[1]
-        old_state = self.registered_output_terminal_states[output_terminal_name]['state']
-        self.registered_output_terminal_states[output_terminal_name]['state'] = new_state
-        logger.debug('Received statechange on %s (old state: %s, new_state: %s)' % (output_terminal_name, old_state, new_state))
+    def registerOutputTerminalStateChange(self, terminal_name, new_state):
+        old_state = self.registered_output_terminal_states[terminal_name]['state']
+        self.registered_output_terminal_states[terminal_name]['state'] = new_state
+        logger.debug('%s changed state from %s to %s' % (terminal_name, old_state, new_state))
 
-        if output_terminal_name in self.connections:
-            for affected_input_terminal in self.connections[output_terminal_name]:
+        if terminal_name in self.connections:
+            for affected_input_terminal in self.connections[terminal_name]:
                 self.remoteSendInputTerminalState(affected_input_terminal, new_state)
+
+    def unRegisterTerminals(self, socket_id):
+        
+        socket_id_registered_out_terminals = [out_terminal for out_terminal in self.registered_output_terminal_states if self.registered_output_terminal_states[out_terminal]['socket_id'] == socket_id]
+        socket_id_registered_in_terminals = [in_terminal for in_terminal in self.registered_input_terminal_states if self.registered_input_terminal_states[in_terminal]['socket_id'] == socket_id]
+
+        for input_terminal in socket_id_registered_in_terminals:
+            del self.registered_input_terminal_states[input_terminal]
+            logger.debug('Deregistered input terminal %s' % (input_terminal, ))
+
+        for output_terminal in socket_id_registered_out_terminals:
+            self.registerOutputTerminalStateChange(output_terminal, self.no_state)
+
+        for output_terminal in socket_id_registered_out_terminals:
+            del self.registered_output_terminal_states[output_terminal]
+            logger.debug('Deregistered input terminal %s' % (output_terminal, ))
+
+
 
 
     def remoteSendInputTerminalState(self, input_terminal_name, new_state):
-        socket_id = self.registered_input_terminal_states[input_terminal_name]['socket_id']
-        client_socket = self.client_sockets[socket_id]['socket']
-        message = 'statechange:' + input_terminal_name + ':' + new_state + '\n'
-        client_socket.write(message.encode())
-        logger.debug('Sent statechange on %s (new state: %s) to %s' % (input_terminal_name, new_state, socket_id))
+        if input_terminal_name in self.registered_input_terminal_states:
+            socket_id = self.registered_input_terminal_states[input_terminal_name]['socket_id']
+            client_socket = self.client_sockets[socket_id]['socket']
+            message = 'statechange:' + input_terminal_name + ':' + new_state + '\n'
+            client_socket.write(message.encode())
+            logger.debug('Sent statechange on %s (new state: %s) to %s' % (input_terminal_name, new_state, socket_id))
 
 
     def getClientSocketId(self, input_terminal_name):
         return self.registered_input_terminal_states[input_terminal_name]['socket_id']
 
 
-    def registerTerminals(self, entries, socket_id):
-        client_name = entries[0]
-        terminal_type = entries[1]
-
-        for terminal_name in entries[2:]:
-            if terminal_type == 'inputs':
-                self.registered_input_terminal_states[terminal_name] = {'group': client_name, 'state': 'None', 'socket_id': socket_id}
-                logger.debug('Registered input terminal: %s (group=%s, state=None, socket_id=%s)' % (terminal_name, client_name, socket_id))
-            elif terminal_type == 'outputs':
-                self.registered_output_terminal_states[terminal_name] = {'group': client_name, 'state': 'None', 'socket_id': socket_id}
-                logger.debug('Registered output terminal: %s (group=%s, state=None, socket_id=%s)' % (terminal_name, client_name, socket_id))
-            else:
-                logger.critical('Some error in registration message.')
-                raise Exception
-
-    
     def closeSocket(self, socket_id):
-        logger.debug('Connection %s closed.' % socket_id)
         self.client_sockets[socket_id]['socket'].abort()
-        # del self.client_sockets[socket_id]
+        self.unRegisterTerminals(socket_id)
+        del self.client_sockets[socket_id]
+        logger.debug('Connection %s closed' % socket_id)
+
 

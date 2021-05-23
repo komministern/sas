@@ -7,10 +7,18 @@ logger = logging.getLogger(__name__)
 
 class SASClient(QtCore.QObject):
 
+    ac_power_on_state = '230VAC'
+    ac_power_off_state = '0VAC'
+    dc_power_on_state = '48VDC'
+    dc_power_off_state = '0VDC'
+    signal_on_state = '12VDC'
+    signal_off_state = '0VDC'
+    no_state = 'None'
+
     def __init__(self):
         super(SASClient, self).__init__()
 
-        self.setClientName('cmsrelay')
+        self.client_name = 'default'
 
         self.input_terminals = {}
         self.output_terminals = {}
@@ -116,15 +124,17 @@ class SASClient(QtCore.QObject):
 
 
     def remoteRegisterInputTerminals(self):
-        message = 'registration:' + self.client_name + ':inputs:' + ':'.join(self.input_terminals) + '\n'
-        self.socket.write(message.encode())
-        logger.debug('Registered input terminals on server (%s).' % (', '.join(self.input_terminals)))
+        if len(self.input_terminals) > 0:
+            message = 'registration:' + 'inputs:' + ':'.join(self.input_terminals) + '\n'
+            self.socket.write(message.encode())
+            logger.debug('Registered input terminals on server (%s).' % (', '.join(self.input_terminals)))
 
 
     def remoteRegisterOutputTerminals(self):
-        message = 'registration:' + self.client_name + ':outputs:' + ':'.join(self.output_terminals) + '\n'
-        self.socket.write(message.encode())
-        logger.debug('Registered output terminals on server (%s).' % (', '.join(self.output_terminals)))
+        if len(self.output_terminals) > 0:
+            message = 'registration:' + 'outputs:' + ':'.join(self.output_terminals) + '\n'
+            self.socket.write(message.encode())
+            logger.debug('Registered output terminals on server (%s).' % (', '.join(self.output_terminals)))
 
 
     def remoteSendOutputTerminalState(self, terminal_name, new_state):
