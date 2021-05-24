@@ -48,6 +48,13 @@ class SASServer(QtNetwork.QTcpServer):
 
     no_state = 'None'
 
+    client_name_registered = QtCore.Signal(str)
+    client_name_unregistered = QtCore.Signal(str)
+    input_terminal_registered = QtCore.Signal(str, str, str)
+    output_terminal_registered = QtCore.Signal(str, str, str, tuple)
+    input_terminal_changed_state = QtCore.Signal(str, str, str)
+    output_terminal_changed_state = QtCore.Signal(str, str, str)
+
     def __init__(self, server_port, connections_path, parent=None):
         super(SASServer, self).__init__(parent)
 
@@ -107,6 +114,11 @@ class SASServer(QtNetwork.QTcpServer):
     def quit(self):
         pass
 
+    def getOutputConnections(self, output_terminal):
+        if output_terminal in self.connections:
+            return self.connections[output_terminal]
+        else:
+            return ()
 
     def incomingConnection(self, socketDescriptor):
         # Generates a random string in order to tell sockets apart, and make sure it's unique.
@@ -158,21 +170,33 @@ class SASServer(QtNetwork.QTcpServer):
 
     def registerClientName(self, name, socket_id):
         self.client_sockets[socket_id]['group'] = name
+        self.client_name_registered.emit(name)
         logger.info('Client %s registered as %s.' % (socket_id, name))
     
     def registerInputTerminals(self, input_terminals, socket_id):
         for terminal_name in input_terminals:
             self.registered_input_terminal_states[terminal_name] = {'state': self.no_state, 'socket_id': socket_id}
+            client_name = self.client_sockets[socket_id]['group']
+            self.input_terminal_registered.emit(client_name, terminal_name, self.registered_input_terminal_states[terminal_name]['state'])
             logger.debug('Client %s registered an input terminal: %s)' % (socket_id, terminal_name))
 
     def registerOutputTerminals(self, output_terminals, socket_id):
         for terminal_name in output_terminals:
             self.registered_output_terminal_states[terminal_name] = {'state': self.no_state, 'socket_id': socket_id}
+            
+            client_name = self.client_sockets[socket_id]['group']
+            self.output_terminal_registered.emit(client_name, terminal_name, self.registered_output_terminal_states[terminal_name]['state'], self.getOutputConnections(terminal_name))
+            
             logger.debug('Client %s registered an output terminal: %s)' % (socket_id, terminal_name))
 
     def registerOutputTerminalStateChange(self, terminal_name, new_state):
         old_state = self.registered_output_terminal_states[terminal_name]['state']
         self.registered_output_terminal_states[terminal_name]['state'] = new_state
+        
+        socket_id = self.registered_output_terminal_states[terminal_name]['socket_id']
+        client_name = self.client_sockets[socket_id]['group']
+        self.output_terminal_changed_state.emit(client_name, terminal_name, new_state)
+
         logger.debug('%s changed state from %s to %s' % (terminal_name, old_state, new_state))
 
         if terminal_name in self.connections:
@@ -180,7 +204,6 @@ class SASServer(QtNetwork.QTcpServer):
                 self.remoteSendInputTerminalState(affected_input_terminal, new_state)
 
     def unRegisterTerminals(self, socket_id):
-        
         socket_id_registered_out_terminals = [out_terminal for out_terminal in self.registered_output_terminal_states if self.registered_output_terminal_states[out_terminal]['socket_id'] == socket_id]
         socket_id_registered_in_terminals = [in_terminal for in_terminal in self.registered_input_terminal_states if self.registered_input_terminal_states[in_terminal]['socket_id'] == socket_id]
 
@@ -195,6 +218,9 @@ class SASServer(QtNetwork.QTcpServer):
             del self.registered_output_terminal_states[output_terminal]
             logger.debug('Deregistered input terminal %s' % (output_terminal, ))
 
+        client_name = self.client_sockets[socket_id]['group']
+        self.client_name_unregistered.emit(client_name)
+
 
 
 
@@ -205,6 +231,10 @@ class SASServer(QtNetwork.QTcpServer):
             message = 'statechange:' + input_terminal_name + ':' + new_state + '\n'
             client_socket.write(message.encode())
             logger.debug('Sent statechange on %s (new state: %s) to %s' % (input_terminal_name, new_state, socket_id))
+
+            socket_id = self.registered_input_terminal_states[input_terminal_name]['socket_id']
+            client_name = self.client_sockets[socket_id]['group']
+            self.input_terminal_changed_state.emit(client_name, input_terminal_name, new_state)
 
 
     def getClientSocketId(self, input_terminal_name):
