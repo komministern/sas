@@ -57,6 +57,9 @@ class SASClient(QtCore.QObject):
 
 
     def startClient(self):
+
+        # Hmmmm.... Do the connecting in a thread instead...... 
+
         logger.debug('Connecting to host at %s, port %d' % (self.server_address, self.server_port))
         self.socket.connectToHost('127.0.0.1', 23456)
         self.socket.waitForConnected()
@@ -89,11 +92,11 @@ class SASClient(QtCore.QObject):
 
 
     def registerInputTerminal(self, name, action=None):
-        self.input_terminals[name] = {'name': name, 'state': 'None', 'action': action}
+        self.input_terminals[name] = {'name': name, 'state': self.no_state, 'action': action}
 
 
-    def registerOutputTerminal(self, name):
-        self.output_terminals[name] = {'name': name, 'state': 'None'}
+    def registerOutputTerminal(self, name, state=no_state):
+        self.output_terminals[name] = {'name': name, 'state': state}
 
 
     def getOutputTerminalState(self, name):
@@ -151,3 +154,28 @@ class SASClient(QtCore.QObject):
     def deRegisterInputTerminals(self):
         pass
     
+
+
+
+class SASConnectThread(QtCore.QThread):
+    # Signals to relay thread progress to the main GUI thread
+    progressSignal = QtCore.Signal(int)
+    completeSignal = QtCore.Signal(str)
+
+    def __init__(self, parent=None):
+        super(SASConnectThread, self).__init__(parent)
+        # You can change variables defined here after initialization - but before calling start()
+        #self.maxRange = 100
+        #self.completionMessage = "done."
+
+    def run(self):
+        # blocking code goes here
+        emitStep = int(self.maxRange/100.0) # how many iterations correspond to 1% on the progress bar
+
+        for i in range(self.maxRange):
+            #time.sleep(0.01)
+
+            if i%emitStep==0:
+                self.progressSignal.emit(i/emitStep)
+
+        self.completeSignal.emit(self.completionMessage)
