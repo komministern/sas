@@ -269,13 +269,13 @@ class SASServer2(QtNetwork.QTcpServer):
 
     client_name_registered = QtCore.Signal(str)
     client_name_unregistered = QtCore.Signal(str)
-    terminal_registered = QtCore.Signal(str, str, str)
+    terminal_registered = QtCore.Signal(str, str, str, tuple)
     terminal_unregistered = QtCore.Signal(str)
     terminal_changed_state = QtCore.Signal(str, str, str)
     
 
     def __init__(self, server_port, connections_path, parent=None):
-        super(SASServer, self).__init__(parent)
+        super(SASServer2, self).__init__(parent)
 
         self.connections = {}
 
@@ -386,6 +386,8 @@ class SASServer2(QtNetwork.QTcpServer):
     def registerTerminals(self, terminals, socket_id):
         for terminal_name in terminals:
             self.registered_terminals[terminal_name] = {'state': self.no_state, 'socket_id': socket_id}
+
+            # Get all connected terminals here, and add them as a tuple to the emit below!
 
             client_name = self.client_sockets[socket_id]
             self.terminal_registered.emit(client_name, terminal_name, self.registered_terminals[terminal_name]['state'])
