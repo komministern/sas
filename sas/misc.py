@@ -7,56 +7,80 @@ from .client import SASClient
 
 logger = logging.getLogger(__name__)
 
-class CircuitBreaker(QtCore.QObject):
+
+class SinglePhaseLoad(QtCore.QObject):
+
+    def __init__(self, on_state, off_state, parent):
+        super(SinglePhaseLoad, self).__init__()
+        self.on_state = on_state
+        self.off_state = off_state
+        self.parent = parent
+
+    """
+    Input is the positive side. It can be connected to a source, or a circuit breaker.
+    The output terminal must be connected to a zero source.
+    """
+
+    def inputAction(self, new_state):
+        if new_state == self.parent.no_state:
+            self.parent.registerTerminalState(self.input_terminal_name, self.off_state)
+            self.parent.pushTerminalState(self.input_terminal_name, self.off_state)
+            # Set to OFF
+            print('OFF')
+        elif new_state == self.on_state:
+            self.parent.pushTerminalState(self.input_terminal_name, self.on_state)
+            # Set to ON
+            print('ON')
+            
+    def outputAction(self, new_state):
+        pass
+    
+    def addTerminalPair(self, input_terminal_name, output_terminal_name):
+        self.input_terminal_name = input_terminal_name
+        self.output_terminal_name = output_terminal_name
+        # self.terminal_pairs['1'] = (input_terminal_name, output_terminal_name)
+        self.parent.terminals[input_terminal_name]['action'] = self.inputAction
+        # self.parent.terminals[output_terminal_name]['action'] = self.outputAction
+
+
+
+class SinglePhaseCircuitBreaker(QtCore.QObject):
 
     def __init__(self, parent, initially_closed=True):
+        super(SinglePhaseCircuitBreaker, self).__init__()
         self.parent = parent
         self.closed = initially_closed
 
         self.terminal_name_pairs = {}
 
-
     def isClosed(self):
         return self.closed
 
-    
-    def addTerminalPair1(self, input_terminal_name, output_terminal_name):
-        self.terminal_pairs['1'] = (input_terminal_name, output_terminal_name)
-        self.parent.input_terminals[input_terminal_name]['action'] = self.inputAction1
+    def inputAction(self, new_state):
+        self.parent.defaultTerminalAction(self.input_terminal_name, new_state)
+        if self.isClosed():    
+            self.parent.defaultTerminalAction(self.output_terminal_name, new_state)
+        else:
+            self.parent.defaultTerminalAction(self.output_terminal_name, self.parent.no_state)
 
-    def addTerminalPair2(self, input_terminal_name, output_terminal_name):
-        self.terminal_pairs['2'] = (input_terminal_name, output_terminal_name)
-        self.parent.input_terminals[input_terminal_name]['action'] = self.inputAction2
-    
-    def addTerminalPair3(self, input_terminal_name, output_terminal_name):
-        self.terminal_pairs['3'] = (input_terminal_name, output_terminal_name)
-        self.parent.input_terminals[input_terminal_name]['action'] = self.inputAction3
+
+    def outputAction(self, new_state):
+        self.parent.defaultTerminalAction(self.output_terminal_name, new_state)
+        if self.isClosed() and self.parent.getTerminalState(self.input_terminal_name) == self.parent.no_state:    
+            self.parent.defaultTerminalAction(self.input_terminal_name, new_state)
+        # else:
+        #     self.parent.defaultTerminalAction(self.input_terminal_name, self.parent.no_state)
+
+
+
+    def addTerminalPair(self, input_terminal_name, output_terminal_name):
+        self.input_terminal_name = input_terminal_name
+        self.output_terminal_name = output_terminal_name
+        self.parent.terminals[input_terminal_name]['action'] = self.inputAction
+        self.parent.terminals[output_terminal_name]['action'] = self.outputAction
+
 
     # Hmmmm.... Same ugly solution as for the Relay?
-
-    def inputAction1(self, new_state):
-        input_terminal_name, output_terminal_name = self.terminal_name_pairs['1']
-        if self.isClosed():
-            output_state = new_state    # Could also be self.parent.getInputTerminalState(input_terminal_name)
-        else:
-            output_state = SASClient.no_state
-        self.parent.setOutputTerminalState(output_terminal_name, output_state)
-
-    def inputAction2(self, new_state):
-        input_terminal_name, output_terminal_name = self.terminal_name_pairs['2']
-        if self.isClosed():
-            output_state = new_state    # Could also be self.parent.getInputTerminalState(input_terminal_name)
-        else:
-            output_state = SASClient.no_state
-        self.parent.setOutputTerminalState(output_terminal_name, output_state)
-    
-    def inputAction3(self, new_state):
-        input_terminal_name, output_terminal_name = self.terminal_name_pairs['3']
-        if self.isClosed():
-            output_state = new_state    # Could also be self.parent.getInputTerminalState(input_terminal_name)
-        else:
-            output_state = SASClient.no_state
-        self.parent.setOutputTerminalState(output_terminal_name, output_state)
 
     
 
@@ -153,5 +177,5 @@ class Relay(QtCore.QObject):
 
         if new_state == SASClient.no_state:
 
-            
+            pass
 

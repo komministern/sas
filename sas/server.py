@@ -305,7 +305,8 @@ class SASServer2(QtNetwork.QTcpServer):
 
         entries = f.readlines()
 
-        counter = 0
+        valid_entry_counter = 0
+        connection_counter = 0
 
         for entry in entries:
             if entry.strip() and not entry.lstrip()[0] == '#':
@@ -316,18 +317,28 @@ class SASServer2(QtNetwork.QTcpServer):
                     # No error check is done here!!!!!!!!
                     s1, s2 = entry.split('->')
                     
-                    output_terminal = s1.strip()
+                    input_terminal = s1.strip()
                     
-                    input_terminals = []
+                    output_terminals = []
                     s2s = s2.split(',')
                     for each in s2s:
-                        input_terminals.append(each.strip())
+                        output_terminals.append(each.strip())
 
-                    self.connections[output_terminal] = tuple(input_terminals)
+                    if input_terminal in self.connections:
+                        self.connections[input_terminal].extend(output_terminals)
+                    else:
+                        self.connections[input_terminal] = output_terminals
 
-                    counter += 1
+                    for output_terminal in output_terminals:
+                        if output_terminal in self.connections:
+                            self.connections[output_terminal].append(input_terminal)
+                        else:
+                            self.connections[output_terminal] = [input_terminal]
+
+                    connection_counter += len(output_terminals)
+                    valid_entry_counter += 1
         
-        logger.info('Successfully registered %d connections.' % counter)
+        logger.info('Successfully registered %d connections from %d entries.' % (connection_counter, valid_entry_counter))
 
 
     def quit(self):
@@ -383,17 +394,22 @@ class SASServer2(QtNetwork.QTcpServer):
         logger.info('Client with id %s registered as %s.' % (socket_id, client_name))
     
 
+
     def registerTerminals(self, terminals, socket_id):
         for terminal_name in terminals:
             self.registered_terminals[terminal_name] = {'state': self.no_state, 'socket_id': socket_id}
 
             # Get all connected terminals here, and add them as a tuple to the emit below!
+            if terminal_name in self.connections:
+                connected_terminal_names = tuple(self.connections[terminal_name])
+            else:
+                connected_terminal_names = ()
 
-            client_name = self.client_sockets[socket_id]
-            self.terminal_registered.emit(client_name, terminal_name, self.registered_terminals[terminal_name]['state'])
+            client_name = self.client_sockets[socket_id]['name']
+            self.terminal_registered.emit(client_name, terminal_name, self.registered_terminals[terminal_name]['state'], connected_terminal_names)
             logger.debug('Client %s registered a terminal: %s)' % (client_name, terminal_name))
 
-            # Hmmm.... Set state according to connected terminals here?????
+            # Hmmm.... Set state according to connected terminals here????? No, all logic at client side!
 
 
     def registerTerminalStateChange(self, terminal_name, new_state, socket_id):
@@ -434,18 +450,22 @@ class SASServer2(QtNetwork.QTcpServer):
 
     def remoteSendTerminalState(self, terminal_name, new_state):
         if terminal_name in self.registered_terminals:
-            socket_id = self.registered_terminals[terminal_name]['socket_id']
-            client_socket = self.client_sockets[socket_id]['socket']
-            client_name = self.client_sockets[socket_id]['name']
-            message = 'statechange:' + terminal_name + ':' + new_state + '\n'
-            client_socket.write(message.encode())
-            logger.debug('Sent statechange on %s (new state: %s) to %s' % (terminal_name, new_state, client_name))
+            if self.getTerminalState(terminal_name) != new_state:
+                socket_id = self.registered_terminals[terminal_name]['socket_id']
+                client_socket = self.client_sockets[socket_id]['socket']
+                client_name = self.client_sockets[socket_id]['name']
+                message = 'statechange:' + terminal_name + ':' + new_state + '\n'
+                client_socket.write(message.encode())
+                logger.debug('Sent statechange on %s (new state: %s) to %s' % (terminal_name, new_state, client_name))
 
-            self.terminal_changed_state.emit(client_name, terminal_name, new_state)
+            # self.terminal_changed_state.emit(client_name, terminal_name, new_state)
 
 
-    def getClientSocketId(self, input_terminal_name):
-        return self.registered_input_terminal_states[input_terminal_name]['socket_id']
+    def getClientSocketId(self, terminal_name):
+        return self.registered_input_terminal_states[terminal_name]['socket_id']
+
+    def getTerminalState(self, terminal_name):
+        return self.registered_terminals[terminal_name]['state']
 
 
     def closeSocket(self, socket_id):
