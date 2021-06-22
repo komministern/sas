@@ -33,6 +33,7 @@ class SASClient2(QtCore.QObject):
         # self.output_terminals = {}
 
         self.terminals = {}
+        self.sources = []
 
         self.server_address = '127.0.0.1'
         self.server_port = 23456
@@ -61,7 +62,7 @@ class SASClient2(QtCore.QObject):
                     terminal_name = entries[1]
                     new_state = entries[2]
 
-                    self.registerTerminalState(terminal_name, new_state)
+                    self.receivedTerminalState(terminal_name, new_state)
                     
                 else:
                     raise Exception
@@ -81,10 +82,17 @@ class SASClient2(QtCore.QObject):
 
         self.pushClientName()
         self.pushTerminals()
+        self.initializeSources()
+
         # self.remoteRegisterInputTerminals()
         # self.remoteRegisterOutputTerminals()
 
         # self.propagateSources()
+
+    def initializeSources(self):
+        for source in self.sources:
+            source.initializeSource()
+
 
        
     def onDisconnected(self):
@@ -105,38 +113,44 @@ class SASClient2(QtCore.QObject):
         logger.debug('Socket state changed to %s' % state)
 
     def defaultTerminalAction(self, terminal_name, new_state):
-        self.terminals[terminal_name]['state'] = new_state
         """
-        Push the terminals local state to the server.
+            Just push the new state of terminal to the server.
         """
         self.pushTerminalState(terminal_name, new_state)
 
 
-    def registerTerminal(self, terminal_name, source=False, state=no_state):
+    def registerTerminal(self, terminal_name, state=no_state):
         self.terminals[terminal_name] = {'name': terminal_name, 'state': state, 'action': partial(self.defaultTerminalAction, terminal_name)}
 
     def getTerminalState(self, terminal_name):
         return self.terminals[terminal_name]['state']
 
-    def registerTerminalState(self, terminal_name, new_state):
+    def receivedTerminalState(self, terminal_name, new_state):
         """
-        Registers a state change that was received from the server side.
+            Acts on a new state change reveived from the server side.
         """
-        logger.debug('Received statechange request on %s (new state: %s) from server' % (terminal_name, new_state))
-        # Register the new state locally, but only if it differs from the old state.
-        if self.getTerminalState(terminal_name) != new_state:# or self.getTerminalState(terminal_name) == self.no_state:
-            #self.terminals[terminal_name]['state'] = new_state
+        logger.debug('Received statechange on %s (new state: %s) from server' % (terminal_name, new_state))
         
-            # Perform action due to new state.
-            logger.debug('Registered statechange on %s (new state: %s)' % (terminal_name, new_state))
-            self.terminals[terminal_name]['action'](new_state)
+        self.terminals[terminal_name]['action'](new_state)
+
+        # # Register the new state locally, but only if it differs from the old state.
+        # if self.getTerminalState(terminal_name) != new_state:# or self.getTerminalState(terminal_name) == self.no_state:
+        #     #self.terminals[terminal_name]['state'] = new_state
+        
+        #     # Perform action due to new state.
+        #     logger.debug('Registered statechange on %s (new state: %s)' % (terminal_name, new_state))
+        #     self.terminals[terminal_name]['action'](new_state)
             
 
 
-    def pushTerminalState(self, terminal_name, new_state):
-        message = 'statechange:' + ':'.join((terminal_name, new_state)) + '\n'
+    def pushTerminalState(self, terminal_name, state):
+        """
+            Stores the state locally at the client side, and sends the new state to the server.
+        """
+        self.terminals[terminal_name]['state'] = state
+        message = 'statechange:' + ':'.join((terminal_name, state)) + '\n'
         self.socket.write(message.encode())
-        logger.debug('Sent statechange on %s (new state: %s) to server' % (terminal_name, new_state))
+        logger.debug('Pushed statechange on %s (new state: %s) to server' % (terminal_name, state))
 
     # def registerInputTerminal(self, name, action=None):
     #     self.input_terminals[name] = {'name': name, 'state': self.no_state, 'action': action}

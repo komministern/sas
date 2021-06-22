@@ -427,11 +427,14 @@ class SASServer2(QtNetwork.QTcpServer):
 
         logger.debug('%s changed state from %s to %s' % (terminal_name, old_state, new_state))
 
-        # Send new state to all connected terminals. Further actions will be taken care of at
-        # the client side.
+        # Send new state to all connected terminals, but only if the connected terminal has a
+        # different state (that is if both states are no_state, no_state should always be
+        # propagated - NOOOOOOOOOOOO. Perhaps a 'question state' is necessary. To check which is the first
+        # source in the path of the question).
         if terminal_name in self.connections:
             for connected_terminal in self.connections[terminal_name]:
-                self.remoteSendTerminalState(connected_terminal, new_state)
+                if self.registered_terminals[connected_terminal]['state'] != new_state or self.registered_terminals[connected_terminal]['state'] == self.no_state:
+                    self.remoteSendTerminalState(connected_terminal, new_state)
 
 
     def unRegisterTerminals(self, socket_id):
